@@ -14,6 +14,8 @@ import { CARBON_CURRENT_THEME, CARBON_TYPE_TOKEN } from './shared';
 import Container from './Container';
 import carbonTheme from './theme';
 
+import { getParameters } from 'codesandbox/lib/api/define';
+
 const customPropertyPrefix = 'cds';
 
 addParameters({
@@ -96,11 +98,9 @@ configureActions({
   limit: 10,
 });
 
-addDecorator((story, i) => {
-  return (
-    <Container id={`container-${story().type?.displayName}`} story={story} />
-  );
-});
+addDecorator((story, i) => (
+  <Container id={`container-${story().type?.displayName}`} story={story} />
+));
 
 addons.getChannel().on(CARBON_CURRENT_THEME, (theme) => {
   document.documentElement.setAttribute('storybook-carbon-theme', theme);
@@ -122,3 +122,138 @@ addons.getChannel().on(CARBON_TYPE_TOKEN, ({ tokenName, tokenValue }) => {
     rem(lineHeight)
   );
 });
+
+export const createChartSandbox = (chartTemplate) => {
+  const files = {};
+
+  Object.keys(chartTemplate).forEach(
+    (filePath) => (files[filePath] = { content: chartTemplate[filePath] })
+  );
+
+  return `https://codesandbox.io/api/v1/sandboxes/define?parameters=${getParameters(
+    { files }
+  )}`;
+};
+
+const plexFontCSS = `@import "https://fonts.googleapis.com/css?family=IBM+Plex+Sans+Condensed|IBM+Plex+Sans:400,600&display=swap";
+
+html, body {
+  font-family: "IBM Plex Sans";
+}`;
+
+const createReactApp = (demoSource, fullStorySource) => {
+  const regex = /^(import)(?:.*?(as))?(?:.*?(as))?(?:.*?(from))*.*$/gm;
+  const importStatements = fullStorySource.match(regex);
+  console.log('EWGew', importStatements);
+
+  const indexHtml = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="theme-color" content="#000000">
+    <!--
+        manifest.json provides metadata used when your web app is added to the
+        homescreen on Android. See https://developers.google.com/web/fundamentals/engage-and-retain/web-app-manifest/
+      -->
+    <link rel="stylesheet" href="https://unpkg.com/carbon-components/css/carbon-components.min.css">
+    <title>React App</title>
+  </head>
+
+  <body>
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <div id="root"></div>
+  </body>
+</html>
+  `;
+
+  const indexJs = `import React from "react";
+import ReactDOM from "react-dom";
+
+${importStatements
+  .filter((importStatement) => {
+    return (
+      !importStatement.includes("'react'") &&
+      !importStatement.includes('.mdx') &&
+      !importStatement.includes('.scss')
+    );
+  })
+  .map((importStatement) => {
+    if (importStatement.includes('../') || importStatement.includes('./')) {
+      return `${
+        importStatement.split('from')[0]
+      }from 'carbon-components-react';`;
+    }
+
+    return importStatement;
+  })
+  .join('\n')}
+
+import "./plex-font.css";
+
+const App = () => {
+${demoSource}
+}
+ReactDOM.render(<App />, document.getElementById("root"));
+  `;
+  const packageJson = {
+    name: 'codesandbox',
+    version: '0.1.0',
+    private: true,
+    dependencies: {
+      '@storybook/addon-knobs': '6.3.1',
+      '@storybook/addons': '6.3.12',
+      '@storybook/client-api': '6.3.12',
+      'carbon-components-react': 'latest',
+      react: '16.12.0',
+      'react-dom': '16.12.0',
+      'react-scripts': '3.0.1',
+    },
+    scripts: {
+      start: 'react-scripts start',
+      build: 'react-scripts build',
+      test: 'react-scripts test',
+      eject: 'react-scripts eject',
+    },
+    browserslist: ['>0.2%', 'not dead', 'not ie <= 11', 'not op_mini all'],
+  };
+
+  return {
+    'src/public/index.html': indexHtml,
+    'src/index.js': indexJs,
+    'src/plex-font.css': plexFontCSS,
+    'package.json': packageJson,
+  };
+};
+
+export const decorators = [
+  (StoryFn, story) => {
+    const { parameters } = story;
+    const { storySource } = parameters;
+    const { locationsMap, source: fullStorySource } = storySource;
+
+    const storyKey = story.parameters.__id.split('--')[1];
+    const storyLocationsMap = locationsMap[storyKey];
+    const { startLoc, endLoc } = storyLocationsMap;
+
+    const demoSource = fullStorySource
+      .split('\n')
+      .slice(startLoc.line, endLoc.line - 1)
+      .join('\n');
+
+    return (
+      <div>
+        <StoryFn />
+
+        <h3>Code sample</h3>
+        <a
+          href={createChartSandbox(createReactApp(demoSource, fullStorySource))}
+          target="_blank">
+          <img src="https://codesandbox.io/static/img/play-codesandbox.svg" />
+        </a>
+      </div>
+    );
+  },
+];
